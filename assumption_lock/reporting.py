@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 from assumption_lock.model import Assumption, CheckResult, ScannedAssumption
 
@@ -22,6 +22,18 @@ class InventorySummary:
     severity_fail: int
 
 
+InventoryGroupBy = Literal["owner", "severity", "status"]
+InventoryStatus = Literal["active", "expired", "expiring_soon"]
+
+
+@dataclass(frozen=True)
+class InventoryFilters:
+    owner: str | None = None
+    severity: str | None = None
+    status: InventoryStatus | None = None
+    has_predicate: bool | None = None
+
+
 def format_check_result(result: CheckResult, *, cwd: str | None = None) -> str:
     prefix = _result_prefix(result)
     location = _format_location(result.file, result.line, cwd=cwd)
@@ -34,8 +46,9 @@ def render_markdown_report(
     assumptions: list[Assumption],
     *,
     cwd: str | None = None,
+    expiring_within_days: int = 30,
 ) -> str:
-    summary = build_inventory_summary(assumptions)
+    summary = build_inventory_summary(assumptions, expiring_within_days=expiring_within_days)
     lines = [
         "# Assumption Register",
         "",
@@ -67,6 +80,60 @@ def render_markdown_report(
     return "\n".join(lines)
 
 
+def render_inventory_markdown_report(
+    assumptions: list[Assumption],
+    *,
+    cwd: str | None = None,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+    filters: InventoryFilters | None = None,
+    group_by: InventoryGroupBy | None = None,
+) -> str:
+    filtered_assumptions = filter_inventory_assumptions(
+        assumptions,
+        today=today,
+        expiring_within_days=expiring_within_days,
+        filters=filters,
+    )
+    summary = build_inventory_summary(filtered_assumptions, today=today, expiring_within_days=expiring_within_days)
+    lines = [
+        "# Assumption Inventory",
+        "",
+        "## Inventory Summary",
+        "",
+        f"- Total assumptions: {summary.total}",
+        f"- Unique owners: {summary.unique_owners}",
+        f"- Missing owner: {summary.missing_owner}",
+        f"- Expired: {summary.expired}",
+        f"- Expiring soon: {summary.expiring_soon}",
+        f"- With predicate: {summary.with_predicate}",
+        f"- Severity warn: {summary.severity_warn}",
+        f"- Severity fail: {summary.severity_fail}",
+        "",
+    ]
+
+    if group_by is None:
+        lines.extend(_render_inventory_table(filtered_assumptions, cwd=cwd))
+        return "\n".join(lines)
+
+    groups = group_inventory_assumptions(
+        filtered_assumptions,
+        group_by=group_by,
+        today=today,
+        expiring_within_days=expiring_within_days,
+    )
+    for group_label, items in groups:
+        lines.extend(
+            [
+                f"## {group_label}",
+                "",
+            ]
+        )
+        lines.extend(_render_inventory_table(items, cwd=cwd))
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
 def render_json_report(assumptions: list[Assumption], *, cwd: str | None = None) -> str:
     payload = [
         {
@@ -90,9 +157,17 @@ def render_inventory_json_report(
     cwd: str | None = None,
     today: date | None = None,
     expiring_within_days: int = 30,
+    filters: InventoryFilters | None = None,
+    group_by: InventoryGroupBy | None = None,
 ) -> str:
-    summary = build_inventory_summary(
+    filtered_assumptions = filter_inventory_assumptions(
         assumptions,
+        today=today,
+        expiring_within_days=expiring_within_days,
+        filters=filters,
+    )
+    summary = build_inventory_summary(
+        filtered_assumptions,
         today=today,
         expiring_within_days=expiring_within_days,
     )
@@ -108,20 +183,82 @@ def render_inventory_json_report(
             "severity_fail": summary.severity_fail,
         },
         "assumptions": [
-            {
-                "name": assumption.name,
-                "owner": assumption.owner,
-                "expires": assumption.expires.isoformat() if assumption.expires else None,
-                "severity": assumption.severity,
-                "evidence": assumption.evidence,
-                "file": _display_file(assumption.file, cwd=cwd),
-                "line": assumption.line,
-                "has_predicate": assumption.that is not None,
-            }
-            for assumption in sorted(assumptions, key=lambda item: item.name)
+            _inventory_payload_item(assumption, cwd=cwd, today=today, expiring_within_days=expiring_within_days)
+            for assumption in sorted(filtered_assumptions, key=lambda item: item.name)
         ],
     }
+    if group_by is not None:
+        payload["groups"] = [
+            {
+                "group_by": group_by,
+                "value": group_label,
+                "assumptions": [
+                    _inventory_payload_item(
+                        assumption,
+                        cwd=cwd,
+                        today=today,
+                        expiring_within_days=expiring_within_days,
+                    )
+                    for assumption in items
+                ],
+            }
+            for group_label, items in group_inventory_assumptions(
+                filtered_assumptions,
+                group_by=group_by,
+                today=today,
+                expiring_within_days=expiring_within_days,
+            )
+        ]
     return json.dumps(payload, indent=2)
+
+
+def filter_inventory_assumptions(
+    assumptions: Iterable[Assumption],
+    *,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+    filters: InventoryFilters | None = None,
+) -> list[Assumption]:
+    active_filters = filters or InventoryFilters()
+    check_date = today or date.today()
+    result: list[Assumption] = []
+
+    for assumption in assumptions:
+        if active_filters.owner is not None and (assumption.owner or "") != active_filters.owner:
+            continue
+        if active_filters.severity is not None and assumption.severity != active_filters.severity:
+            continue
+        if active_filters.has_predicate is not None and (assumption.that is not None) != active_filters.has_predicate:
+            continue
+        if active_filters.status is not None and _inventory_status(
+            assumption, today=check_date, expiring_within_days=expiring_within_days
+        ) != active_filters.status:
+            continue
+        result.append(assumption)
+
+    return sorted(result, key=lambda item: item.name)
+
+
+def group_inventory_assumptions(
+    assumptions: Iterable[Assumption],
+    *,
+    group_by: InventoryGroupBy,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+) -> list[tuple[str, list[Assumption]]]:
+    check_date = today or date.today()
+    grouped: dict[str, list[Assumption]] = {}
+
+    for assumption in assumptions:
+        group_value = _inventory_group_value(
+            assumption,
+            group_by=group_by,
+            today=check_date,
+            expiring_within_days=expiring_within_days,
+        )
+        grouped.setdefault(group_value, []).append(assumption)
+
+    return [(group_label, sorted(items, key=lambda item: item.name)) for group_label, items in sorted(grouped.items())]
 
 
 def build_inventory_summary(
@@ -171,6 +308,79 @@ def build_inventory_summary(
         severity_warn=severity_warn,
         severity_fail=severity_fail,
     )
+
+
+def _render_inventory_table(assumptions: Iterable[Assumption], *, cwd: str | None = None) -> list[str]:
+    lines = [
+        "| Name | Owner | Expires | Severity | Evidence | Status | Location |",
+        "|---|---|---:|---|---|---|---|",
+    ]
+    for assumption in sorted(assumptions, key=lambda item: item.name):
+        lines.append(
+            "| {name} | {owner} | {expires} | {severity} | {evidence} | {status} | {location} |".format(
+                name=assumption.name,
+                owner=assumption.owner or "",
+                expires=assumption.expires.isoformat() if assumption.expires else "",
+                severity=assumption.severity,
+                evidence=assumption.evidence or "",
+                status=_inventory_status(assumption),
+                location=_format_location(assumption.file, assumption.line, cwd=cwd),
+            )
+        )
+    return lines
+
+
+def _inventory_status(
+    assumption: Assumption,
+    *,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+) -> InventoryStatus:
+    check_date = today or date.today()
+    if assumption.expires is not None:
+        if assumption.expires < check_date:
+            return "expired"
+        if assumption.expires <= check_date + timedelta(days=expiring_within_days):
+            return "expiring_soon"
+    return "active"
+
+
+def _inventory_group_value(
+    assumption: Assumption,
+    *,
+    group_by: InventoryGroupBy,
+    today: date,
+    expiring_within_days: int,
+) -> str:
+    if group_by == "owner":
+        return assumption.owner.strip() if assumption.owner and assumption.owner.strip() else "<missing owner>"
+    if group_by == "severity":
+        return assumption.severity
+    return _inventory_status(assumption, today=today, expiring_within_days=expiring_within_days)
+
+
+def _inventory_payload_item(
+    assumption: Assumption,
+    *,
+    cwd: str | None = None,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+) -> dict[str, object]:
+    return {
+        "name": assumption.name,
+        "owner": assumption.owner,
+        "expires": assumption.expires.isoformat() if assumption.expires else None,
+        "severity": assumption.severity,
+        "evidence": assumption.evidence,
+        "file": _display_file(assumption.file, cwd=cwd),
+        "line": assumption.line,
+        "has_predicate": assumption.that is not None,
+        "status": _inventory_status(
+            assumption,
+            today=today,
+            expiring_within_days=expiring_within_days,
+        ),
+    }
 
 
 def render_scan_results(results: list[ScannedAssumption], *, cwd: str | None = None) -> str:

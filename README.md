@@ -39,6 +39,8 @@ assumption-lock report --module my_app.assumptions --format json
 assumption-lock inventory --module my_app.assumptions --format json
 ```
 
+Use `report` when you want a human-readable register, and `inventory` when you want a machine-friendly inventory payload with a top-level summary and the full assumption list.
+
 ## CI example
 
 ```bash
@@ -54,12 +56,19 @@ Use `severity="fail"` for assumptions that should fail CI and `severity="warn"` 
 - Runtime check imports only the modules you explicitly pass, registers assumptions, validates metadata through the policy engine, and optionally executes predicates.
 - Static scan parses Python files with `ast` and finds simple `assume(...)` calls without importing application code.
 
+You can configure the policy engine with either `assumption-lock.toml` or a `[tool.assumption_lock]` table in `pyproject.toml`.
+
 The default policy checks for:
 
 - missing owners
 - expired assumptions
 - assumptions expiring soon
 - predicate failures or exceptions
+
+Supported config settings today:
+
+- `expiring_within_days` — number of days before expiry to treat an assumption as expiring soon
+- `require_evidence_for_fail` — require `evidence` on assumptions with `severity = "fail"`
 
 ## Known v0.1 limitations
 
@@ -73,6 +82,34 @@ Keep assumptions in a dedicated `assumptions.py` file when possible so runtime i
 The Markdown report now includes an inventory summary so you can quickly see total assumptions, missing owners, expiry risk, and predicate usage before drilling into the full table.
 
 Use `assumption-lock inventory --format json` when you want a machine-readable inventory payload with a top-level summary and the full assumption list.
+
+Typical output choices:
+
+- `assumption-lock report --format markdown` for a readable register in docs or CI logs
+- `assumption-lock report --format json` for a flat assumption list
+- `assumption-lock inventory --format json` for structured tooling, dashboards, or downstream automation
+
+Inventory can also be filtered and grouped:
+
+```bash
+assumption-lock inventory --module my_app.assumptions --format markdown --owner platform
+assumption-lock inventory --module my_app.assumptions --format json --severity fail --group-by status
+```
+
+Supported inventory filters today:
+
+- `--owner`
+- `--severity`
+- `--status active|expired|expiring_soon`
+- `--has-predicate`
+- `--group-by owner|severity|status`
+
+Example `assumption-lock.toml`:
+
+```toml
+expiring_within_days = 14
+require_evidence_for_fail = true
+```
 
 ## Non-goals for v0.1
 

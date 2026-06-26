@@ -78,3 +78,14 @@ def test_expiring_soon_produces_warning_result() -> None:
     assert result.status == "failed"
     assert result.message == "Expiring on 2026-01-15 within 30 days"
     assert result.severity == "warn"
+
+
+def test_config_requires_evidence_for_fail_severity() -> None:
+    from assumption_lock.config import PolicyConfig
+
+    assume("example", owner="platform", severity="fail")
+
+    result = check_all(today=date(2026, 1, 1), config=PolicyConfig(require_evidence_for_fail=True))[0]
+
+    assert result.status == "failed"
+    assert result.message == "Missing evidence for fail severity"

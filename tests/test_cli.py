@@ -89,6 +89,61 @@ def test_inventory_outputs_summary_json(
     assert payload["assumptions"][0]["name"] == "users.table_under_1m_rows"
 
 
+def test_inventory_can_filter_and_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module_name = _write_module(
+        tmp_path,
+        "grouped_inventory_assumptions",
+        "\n".join(
+            [
+                'assume("alpha.one", owner="alpha", expires="2026-12-31", severity="fail")',
+                'assume("beta.two", owner="beta", expires="2025-12-31", severity="warn")',
+            ]
+        )
+        + "\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    exit_code = main([
+        "inventory",
+        "--module",
+        module_name,
+        "--format",
+        "markdown",
+        "--owner",
+        "alpha",
+        "--group-by",
+        "owner",
+    ])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "## alpha" in output
+    assert "alpha.one" in output
+    assert "beta.two" not in output
+
+
+def test_check_uses_config_file_for_evidence_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module_name = _write_module(
+        tmp_path,
+        "config_assumptions",
+        'assume("payments.contract", owner="platform", severity="fail")\n',
+    )
+    config_file = tmp_path / "assumption-lock.toml"
+    config_file.write_text("require_evidence_for_fail = true\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["check", "--module", module_name])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "Missing evidence for fail severity" in output
+
+
 def test_scan_uses_ast_without_importing_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

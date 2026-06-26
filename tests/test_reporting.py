@@ -6,9 +6,13 @@ from assumption_lock.model import Assumption, CheckResult
 from assumption_lock.reporting import (
     build_inventory_summary,
     format_check_result,
+    filter_inventory_assumptions,
+    group_inventory_assumptions,
     render_inventory_json_report,
+    render_inventory_markdown_report,
     render_json_report,
     render_markdown_report,
+    InventoryFilters,
 )
 
 
@@ -142,3 +146,101 @@ def test_inventory_json_report_has_summary_and_assumptions() -> None:
 
     assert payload["summary"]["total"] == 1
     assert payload["assumptions"][0]["name"] == "users.table_under_1m_rows"
+
+
+def test_inventory_filters_by_owner_and_status() -> None:
+    assumptions = [
+        Assumption(
+            name="active.match",
+            owner="platform",
+            expires=date(2026, 12, 31),
+            evidence=None,
+            severity="fail",
+            that=None,
+            file=None,
+            line=None,
+        ),
+        Assumption(
+            name="expired.skip",
+            owner="payments",
+            expires=date(2025, 12, 31),
+            evidence=None,
+            severity="warn",
+            that=None,
+            file=None,
+            line=None,
+        ),
+    ]
+
+    filtered = filter_inventory_assumptions(
+        assumptions,
+        today=date(2026, 1, 1),
+        filters=InventoryFilters(owner="platform", status="active"),
+    )
+
+    assert [assumption.name for assumption in filtered] == ["active.match"]
+
+
+def test_inventory_groups_by_owner() -> None:
+    assumptions = [
+        Assumption(
+            name="alpha.one",
+            owner="alpha",
+            expires=None,
+            evidence=None,
+            severity="fail",
+            that=None,
+            file=None,
+            line=None,
+        ),
+        Assumption(
+            name="beta.two",
+            owner="beta",
+            expires=None,
+            evidence=None,
+            severity="warn",
+            that=None,
+            file=None,
+            line=None,
+        ),
+    ]
+
+    groups = group_inventory_assumptions(assumptions, group_by="owner")
+
+    assert [group_label for group_label, _ in groups] == ["alpha", "beta"]
+    assert [assumption.name for _, items in groups for assumption in items] == ["alpha.one", "beta.two"]
+
+
+def test_inventory_markdown_groups_by_status() -> None:
+    assumptions = [
+        Assumption(
+            name="active.one",
+            owner="platform",
+            expires=date(2026, 12, 31),
+            evidence=None,
+            severity="fail",
+            that=None,
+            file="/repo/app/assumptions.py",
+            line=12,
+        ),
+        Assumption(
+            name="expired.one",
+            owner="platform",
+            expires=date(2025, 12, 31),
+            evidence=None,
+            severity="warn",
+            that=None,
+            file="/repo/app/assumptions.py",
+            line=13,
+        ),
+    ]
+
+    report = render_inventory_markdown_report(
+        assumptions,
+        cwd="/repo",
+        today=date(2026, 1, 1),
+        group_by="status",
+    )
+
+    assert "## active" in report
+    assert "## expired" in report

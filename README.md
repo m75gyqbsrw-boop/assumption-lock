@@ -6,6 +6,20 @@
 
 Engineering assumptions often live in comments, tickets, ADRs, Slack threads, or team memory. `assumption-lock` keeps those assumptions in code so they can be checked and reviewed.
 
+## What is an assumption?
+
+In this project, an assumption is a statement like:
+
+> "We believe X is true, and this code depends on X."
+
+Examples:
+
+- "Webhook latency stays under 30 seconds"
+- "This table stays under 1M rows this quarter"
+- "Service Y keeps the same cache contract"
+
+If the assumption stops being true, behavior, reliability, or performance can regress. `assumption-lock` turns these into explicit, trackable records in code.
+
 ## Install
 
 ```bash
@@ -50,6 +64,23 @@ assumption-lock check --module my_app.assumptions
 ```
 
 Use `severity="fail"` for assumptions that should fail CI and `severity="warn"` for assumptions that should remain visible without forcing a non-zero exit code.
+
+## What this enforces in practice
+
+`assumption-lock` only enforces behavior when you run checks (typically in CI).
+
+When `assumption-lock check` runs, developers are effectively required to keep assumptions healthy according to policy, including:
+
+- declaring assumptions explicitly in code with `assume(...)`
+- keeping required metadata valid (for example owner and expiry)
+- keeping assumptions from expiring
+- providing evidence when your policy requires it (for example `require_evidence_for_fail = true`)
+- keeping predicates passing when predicates are used
+
+Exit behavior:
+
+- failures on assumptions with `severity="fail"` produce a non-zero exit code
+- failures on assumptions with `severity="warn"` remain visible but do not fail CI
 
 ## Runtime check vs static scan
 

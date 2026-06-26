@@ -36,6 +36,7 @@ assumption-lock check --module my_app.assumptions
 assumption-lock scan .
 assumption-lock report --module my_app.assumptions --format markdown
 assumption-lock report --module my_app.assumptions --format json
+assumption-lock inventory --module my_app.assumptions --format json
 ```
 
 ## CI example
@@ -50,8 +51,15 @@ Use `severity="fail"` for assumptions that should fail CI and `severity="warn"` 
 
 ## Runtime check vs static scan
 
-- Runtime check imports only the modules you explicitly pass, registers assumptions, validates metadata, and optionally executes predicates.
+- Runtime check imports only the modules you explicitly pass, registers assumptions, validates metadata through the policy engine, and optionally executes predicates.
 - Static scan parses Python files with `ast` and finds simple `assume(...)` calls without importing application code.
+
+The default policy checks for:
+
+- missing owners
+- expired assumptions
+- assumptions expiring soon
+- predicate failures or exceptions
 
 ## Known v0.1 limitations
 
@@ -61,6 +69,10 @@ Use `severity="fail"` for assumptions that should fail CI and `severity="warn"` 
 ## Guidance
 
 Keep assumptions in a dedicated `assumptions.py` file when possible so runtime imports stay explicit and easy to review.
+
+The Markdown report now includes an inventory summary so you can quickly see total assumptions, missing owners, expiry risk, and predicate usage before drilling into the full table.
+
+Use `assumption-lock inventory --format json` when you want a machine-readable inventory payload with a top-level summary and the full assumption list.
 
 ## Non-goals for v0.1
 

@@ -70,6 +70,25 @@ def test_report_outputs_markdown_and_json(
     assert json.loads(json_output)[0]["name"] == "users.table_under_1m_rows"
 
 
+def test_inventory_outputs_summary_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module_name = _write_module(
+        tmp_path,
+        "inventory_assumptions",
+        'assume("users.table_under_1m_rows", owner="platform", expires="2026-12-31", severity="fail")\n',
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    exit_code = main(["inventory", "--module", module_name, "--format", "json"])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code == 0
+    assert payload["summary"]["total"] == 1
+    assert payload["assumptions"][0]["name"] == "users.table_under_1m_rows"
+
+
 def test_scan_uses_ast_without_importing_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

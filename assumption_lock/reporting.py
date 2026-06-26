@@ -1,10 +1,25 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from dataclasses import asdict
+from datetime import date, timedelta
 from pathlib import Path
+from typing import Iterable
 
 from assumption_lock.model import Assumption, CheckResult, ScannedAssumption
+
+
+@dataclass(frozen=True)
+class InventorySummary:
+    total: int
+    unique_owners: int
+    missing_owner: int
+    expired: int
+    expiring_soon: int
+    with_predicate: int
+    severity_warn: int
+    severity_fail: int
 
 
 def format_check_result(result: CheckResult, *, cwd: str | None = None) -> str:
@@ -20,8 +35,20 @@ def render_markdown_report(
     *,
     cwd: str | None = None,
 ) -> str:
+    summary = build_inventory_summary(assumptions)
     lines = [
         "# Assumption Register",
+        "",
+        "## Inventory Summary",
+        "",
+        f"- Total assumptions: {summary.total}",
+        f"- Unique owners: {summary.unique_owners}",
+        f"- Missing owner: {summary.missing_owner}",
+        f"- Expired: {summary.expired}",
+        f"- Expiring soon: {summary.expiring_soon}",
+        f"- With predicate: {summary.with_predicate}",
+        f"- Severity warn: {summary.severity_warn}",
+        f"- Severity fail: {summary.severity_fail}",
         "",
         "| Name | Owner | Expires | Severity | Evidence | Location |",
         "|---|---|---:|---|---|---|",
@@ -55,6 +82,95 @@ def render_json_report(assumptions: list[Assumption], *, cwd: str | None = None)
         for assumption in sorted(assumptions, key=lambda item: item.name)
     ]
     return json.dumps(payload, indent=2)
+
+
+def render_inventory_json_report(
+    assumptions: list[Assumption],
+    *,
+    cwd: str | None = None,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+) -> str:
+    summary = build_inventory_summary(
+        assumptions,
+        today=today,
+        expiring_within_days=expiring_within_days,
+    )
+    payload = {
+        "summary": {
+            "total": summary.total,
+            "unique_owners": summary.unique_owners,
+            "missing_owner": summary.missing_owner,
+            "expired": summary.expired,
+            "expiring_soon": summary.expiring_soon,
+            "with_predicate": summary.with_predicate,
+            "severity_warn": summary.severity_warn,
+            "severity_fail": summary.severity_fail,
+        },
+        "assumptions": [
+            {
+                "name": assumption.name,
+                "owner": assumption.owner,
+                "expires": assumption.expires.isoformat() if assumption.expires else None,
+                "severity": assumption.severity,
+                "evidence": assumption.evidence,
+                "file": _display_file(assumption.file, cwd=cwd),
+                "line": assumption.line,
+                "has_predicate": assumption.that is not None,
+            }
+            for assumption in sorted(assumptions, key=lambda item: item.name)
+        ],
+    }
+    return json.dumps(payload, indent=2)
+
+
+def build_inventory_summary(
+    assumptions: Iterable[Assumption],
+    *,
+    today: date | None = None,
+    expiring_within_days: int = 30,
+) -> InventorySummary:
+    check_date = today or date.today()
+    unique_owners: set[str] = set()
+    missing_owner = 0
+    expired = 0
+    expiring_soon = 0
+    with_predicate = 0
+    severity_warn = 0
+    severity_fail = 0
+    total = 0
+
+    for assumption in assumptions:
+        total += 1
+        if assumption.owner and assumption.owner.strip():
+            unique_owners.add(assumption.owner.strip())
+        else:
+            missing_owner += 1
+
+        if assumption.expires is not None:
+            if assumption.expires < check_date:
+                expired += 1
+            elif assumption.expires <= check_date + timedelta(days=expiring_within_days):
+                expiring_soon += 1
+
+        if assumption.that is not None:
+            with_predicate += 1
+
+        if assumption.severity == "warn":
+            severity_warn += 1
+        else:
+            severity_fail += 1
+
+    return InventorySummary(
+        total=total,
+        unique_owners=len(unique_owners),
+        missing_owner=missing_owner,
+        expired=expired,
+        expiring_soon=expiring_soon,
+        with_predicate=with_predicate,
+        severity_warn=severity_warn,
+        severity_fail=severity_fail,
+    )
 
 
 def render_scan_results(results: list[ScannedAssumption], *, cwd: str | None = None) -> str:

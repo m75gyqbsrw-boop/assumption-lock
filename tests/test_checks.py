@@ -68,3 +68,13 @@ def test_missing_owner_produces_failed_result() -> None:
 
     assert result.status == "failed"
     assert result.message == "Missing owner"
+
+
+def test_expiring_soon_produces_warning_result() -> None:
+    assume("example", owner="platform", expires="2026-01-15", severity="warn")
+
+    result = check_all(today=date(2026, 1, 1))[0]
+
+    assert result.status == "failed"
+    assert result.message == "Expiring on 2026-01-15 within 30 days"
+    assert result.severity == "warn"

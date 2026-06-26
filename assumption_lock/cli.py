@@ -8,6 +8,7 @@ from assumption_lock.checks import check_all
 from assumption_lock.registry import all_assumptions, clear_registry
 from assumption_lock.reporting import (
     format_check_result,
+    render_inventory_json_report,
     render_json_report,
     render_markdown_report,
     render_scan_results,
@@ -25,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_scan(args.paths)
     if args.command == "report":
         return _run_report(args.module, args.format)
+    if args.command == "inventory":
+        return _run_inventory(args.module, args.format)
     parser.error(f"Unknown command: {args.command}")
     return 2
 
@@ -42,6 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser = subparsers.add_parser("report")
     report_parser.add_argument("--module", action="append", required=True)
     report_parser.add_argument("--format", choices=("markdown", "json"), required=True)
+
+    inventory_parser = subparsers.add_parser("inventory")
+    inventory_parser.add_argument("--module", action="append", required=True)
+    inventory_parser.add_argument("--format", choices=("markdown", "json"), required=True)
 
     return parser
 
@@ -69,6 +76,16 @@ def _run_report(modules: list[str], report_format: str) -> int:
         print(render_markdown_report(assumptions))
     else:
         print(render_json_report(assumptions))
+    return 0
+
+
+def _run_inventory(modules: list[str], report_format: str) -> int:
+    _load_modules(modules)
+    assumptions = all_assumptions()
+    if report_format == "markdown":
+        print(render_markdown_report(assumptions))
+    else:
+        print(render_inventory_json_report(assumptions))
     return 0
 
 

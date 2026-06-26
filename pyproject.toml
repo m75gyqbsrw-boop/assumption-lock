@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=78.1.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "assumption-lock"
+version = "0.1.0"
+description = "Small Python library and CLI for explicit engineering assumptions."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "GitHub Copilot" }]
+dependencies = []
+
+[project.scripts]
+assumption-lock = "assumption_lock.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["assumption_lock*"]

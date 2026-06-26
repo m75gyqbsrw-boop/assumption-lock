@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 from datetime import date
-from os import PathLike
 from pathlib import Path
 from typing import Callable
 
@@ -19,6 +18,7 @@ def assume(
     evidence: str | None = None,
     severity: Severity = "warn",
 ) -> None:
+    caller_file, caller_line = _caller_location()
     assumption = Assumption(
         name=_validate_name(name),
         owner=owner,
@@ -26,8 +26,8 @@ def assume(
         evidence=evidence,
         severity=_validate_severity(severity),
         that=that,
-        file=_caller_file(),
-        line=_caller_line(),
+        file=caller_file,
+        line=caller_line,
     )
     register(assumption)
 
@@ -61,21 +61,12 @@ def _parse_expiry(value: str | date | None) -> date | None:
     )
 
 
-def _caller_file() -> str | None:
+def _caller_location() -> tuple[str | None, int | None]:
     frame = inspect.currentframe()
     try:
-        if frame is None or frame.f_back is None:
-            return None
-        return str(Path(frame.f_back.f_code.co_filename).resolve())
-    finally:
-        del frame
-
-
-def _caller_line() -> int | None:
-    frame = inspect.currentframe()
-    try:
-        if frame is None or frame.f_back is None:
-            return None
-        return frame.f_back.f_lineno
+        if frame is None or frame.f_back is None or frame.f_back.f_back is None:
+            return None, None
+        caller_frame = frame.f_back.f_back
+        return str(Path(caller_frame.f_code.co_filename).resolve()), caller_frame.f_lineno
     finally:
         del frame

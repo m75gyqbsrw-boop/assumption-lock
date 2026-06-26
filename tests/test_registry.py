@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from assumption_lock.model import Assumption
 from assumption_lock.registry import all_assumptions, clear_registry, register
+
+
+@pytest.fixture(autouse=True)
+def reset_registry() -> None:
+    clear_registry()
 
 
 def test_clear_registry_removes_all_assumptions() -> None:

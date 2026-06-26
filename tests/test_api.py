@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -68,3 +69,19 @@ def test_predicate_is_not_called_during_registration() -> None:
     assume("runtime.only", that=predicate)
 
     assert called is False
+
+
+def test_registration_captures_user_callsite() -> None:
+    expected_file = str(Path(__file__).resolve())
+    expected_line = _register_callsite_assumption()
+
+    assumption = all_assumptions()[0]
+
+    assert assumption.file == expected_file
+    assert assumption.line == expected_line
+
+
+def _register_callsite_assumption() -> int:
+    line = _register_callsite_assumption.__code__.co_firstlineno + 2
+    assume("callsite.example")
+    return line
